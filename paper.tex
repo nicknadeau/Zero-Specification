@@ -1,0 +1,108 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage {tikz}
+\usepackage{indentfirst}
+\usetikzlibrary {positioning}
+\definecolor {processblue}{cmyk}{0.96,0,0,0}
+
+\title{Zero: A Generic Blockchain Template Layer \\
+	\large Version 0}
+\author{Nick Nadeau}
+\date{2022 January}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+While every blockchain specification is, or should be, unique in some way, there is nonetheless a small portion of the blockchain which can be specified generically so that this "layer" may be re-used by other higher-level specifications. Zero is an attempt to do just that. It is not perfectly generic, otherwise it would become nothing. But, it is aimed at providing a generic layer to blockchain specifications that conform at least to a certain topology - a tree of blocks in which each block has exactly one parent block (excluding the initial 'genesis' block, of course) and which may have zero or more child blocks.
+
+This generic layer is referred to as \textbf{layer zero}, and itself is fairly useless until some other specification is built on top of it. This other specification is called a \textbf{layer one} specification. Layer one is the specification that deals with the remainder of the blockchain and everything specific to it. While layer zero is small, it at least provides a layer that does some of the work required by any blockchain implementation with the aforementioned topology. In particular, layer zero supports adding and removing blocks from the blockchain, and implements all of the essential block verification logic.
+
+It should be possible, therefore, to build a crypto-currency blockchain implementation on top of a layer zero implementation of the Zero specification, as well as a host of other blockchains which may have other diverse needs completely unlike a crypto-currency, or which has a different consensus protocol, etc..
+
+\section{Topology}
+The topology of a Zero blockchain is a directed acyclic tree of blocks. The genesis block, which is the root of the tree, is the unique block in the blockchain that has no parent block. All other blocks in the tree have exactly one parent block. While each block has exactly one parent (excluding the genesis block), each block may have zero or more children. The direction of the edges between blocks runs from child to parent, so that the child block knows who its parent is, but no parent block contains any knowledge of its children.
+
+Zero imposes no topological interpretations. Such interpretations are reserved for the layer one specification to define. In other words, there is no concept of a main chain or anything like that, from the perspective of layer zero. The blockchain is simply a tree of blocks and nothing more.
+
+\section{Blocks}
+Every block has the following attributes:
+\begin{itemize}
+\item \textbf{number}: The block number is the number of ancestors the block has. The genesis block is therefore number $0$. The block whose parent is the genesis block is number $1$, and so on. Note that there may be more than one block with the same number, since blocks may have multiple children. The block number is therefore always non-negative.
+\item \textbf{producer-public-key}: This is the cryptographic public key of the account that produced this block, as a byte array representation.
+\item \textbf{parent-block-hash}: The byte array representation of the hash of this block's parent block. If this block is the genesis block, then it has no parent block hash. Otherwise, it must have one.
+\item \textbf{data}: An arbitrary array of bytes. These bytes are opaque to layer zero; it has no interpretation of their meaning. These bytes are to be used by layer one as a means of extending the attributes of a block. For example, if a layer one specification wishes to add a \textit{nonce} attribute to the block, it can encode that value and store it in this data field, along with anything else it wishes to store.
+\item \textbf{zero-major-version}: The major version of the Zero implementation that was used to produce this block. The major version is denoted by a numeric value. Any running instance of Zero with some version $v$ can only accept and work with blocks whose major version is $v$ and no other major version. Note that the major version number only exists for the genesis block. All other blocks in the blockchain have no such attribute associated with them. Instead, every block whose ultimate ancestor is a genesis block built with major version $v$, inherits the same major version as its genesis block.
+\item \textbf{hash}: The hash of this block. The block hash is the unique identifier of this block and therefore a sufficient hash algorithm should be chosen by the layer one implementation so as to ensure block hash collisions are as non-existent as possible. If two blocks are actually different but have the same hash, they must be treated as the same block. This obviously undermines the network's consensus over what the block actually is. The pre-image of the block hash is defined below.
+\item \textbf{signature}: The block signature is the cryptographic signature of the block's hash, as signed by the private key corresponding to the \textit{producer-public-key}, as a byte array representation.
+\end{itemize}
+Note that a block is entirely defined by its hash and therefore all of the attributes that are part of the hash's pre-image are explicitly part of the network's consensus. The only attribute mentioned above that is not part of the pre-image is the block's signature, but the block's signature is implicitly part of consensus since any signature of the block's hash by some private key must be deterministic, and the private key is itself tied to the public key, which is part of the pre-image.
+
+\section{Block Hash Pre-Image}
+The pre-image of the block hash (ie. the payload of the hash function that produces the block's hash) is a byte array defined as follows.
+
+\vspace{5mm}
+\textbf{Genesis Block Pre-image}: 
+\\$|$zero-major-version$|$producer-public-key$|$data$|$
+
+\textbf{Non-Genesis Block Pre-image}: 
+\\$|$number$|$producer-public-key$|$parent-block-hash$|$data$|$
+\vspace{5mm}
+
+\textbf{zero-major-version}: A 4-byte unsigned big-endian integer.
+
+\textbf{number}: An $N$-byte unsigned big-endian integer representation, where $N$ is as large as is needed in order to represent the entire integer. Note that the integer upper bound is unbounded and its lower bound is a single byte. Thus, the block number $1$ would be encoded in a single byte. Note that if the complete integer representation has a bit length that is not divisible by 8, then a minimum number of zero bit padding bits must be added to the most significant bits of the integer in order to re-align it to a minimum byte boundary.
+
+\textbf{producer-public-key}: $N$ bytes, which are the actual public key bytes themselves, where $N$ is as large as is needed in order to represent the entire key. The length of a key in bits must be divisible by 8 so that it can be aligned to single byte boundaries. A valid public key must consist of at least $1$ byte (though it should obviously consist of more than that) and is therefore non-empty.
+
+\textbf{parent-block-hash}: $N$ bytes, which are the actual block hash bytes themselves, where $N$ is as large as is needed in order to represent the entire hash. The length of a hash in bits must be divisible by 8 so that it can be aligned to single byte boundaries. A valid block hash must consist of at least $1$ byte (though it should obviously consist of more than that) and is therefore non-empty.
+
+\textbf{data}: $N$ bytes, which are the actual data bytes themselves, where $N$ is the length of the data in bytes. The length of the data in bits must be divisible by 8 so that it can be aligned to single byte boundaries. It is permissible for there to be no data, in which case it consists of $0$ bytes.
+
+\section{Callbacks And Layer One Libraries}
+Since layer zero assumes there is some more specific layer one specification built on top of it, it must have some means of communicating events to that layer, and of having that layer be able to customize certain functionality. We use callback functions and library routines to accomplish this. Of course, it is up to a specific implementation to figure out how to do this in whichever language is being used, and the ideas of callback functions or libraries only serve as general outlines and are not implementation decisions - the implementor is free to implement these features as is most natural for their project.
+
+When we talk about library routines, we mean groups of functionality that are written or provided to us by layer one and which layer zero itself is completely agnostic to. The following libraries are required:
+
+\begin{itemize}
+\item \texttt{hash library}: A library which provides a hash function, that takes a payload and outputs a hash of that payload.
+\item \texttt{cryptographic signature verification library}: A library which provides a cryptographic public-private verification function, which takes a public key, a signature, and a payload and outputs \texttt{true} if and only if the payload was signed by the private key corresponding to the given public key and produced the given signature as a result.
+\end{itemize}
+
+When we talk about callback functions, we simply mean some functions that layer one defines and passes to layer zero, so that layer zero can invoke them when certain events occur. The following callback functions are required:
+
+\begin{itemize}
+\item \texttt{validate-block-callback}: A callback function which is called by layer zero when a new block is attempting to be added to the blockchain and thus requires layer one validation. This callback enables layer one to provide its own extended verification functionality. The callback must receive the block as an argument and return a success/failure result.
+\item \texttt{add-block-callback}: A callback function which is called by layer zero to signal to layer one that a block has been added to the blockchain.
+\item \texttt{delete-block-callback}: A callback function which is called by layer zero to signal to layer one that a block has been deleted from the blockchain.
+\end{itemize}
+
+\section{Adding Blocks}
+Every block that is added to the blockchain must pass all of the block validation checks against it, which will be outlined below. If all of the block validation checks succeed, then the block will be added to the blockchain.
+
+Every layer zero implementation must perform the following verifications on the incoming block and must refuse to add the block to the blockchain if any one of them fails:
+\begin{itemize}
+\item For any block whose number is $0$, the zero-major-version value must be compatible with the actual running implementation's major version.
+\item The block number must be non-negative.
+\item The block number must be equal to $P + 1$, where $P$ is the block number of the block's parent block for all blocks whose numbers are greater than zero.
+\item Exactly one block with number $0$ is permitted to exist in the blockchain at any given time.
+\item The block's producer-public-key must be non-empty and therefore consist of at least one byte.
+\item The block's hash must be non-empty and therefore consist of at least one byte.
+\item The block's parent hash must be non-empty and therefore consist of at least one byte if the block number is greater than $0$, and otherwise it must be empty, consisting of zero bytes, when the block number is $0$.
+\item The invocation of the \texttt{cryptographic signature verification library} function must provide the function with the block's hash as its payload, the block's producer-public-key as the public key, and the block's signature as the signature. The output of the function must be \texttt{true}.
+\item For all blocks whose number is greater than $0$, there must exist a block in the blockchain with a block hash equivalent to the parent-block-hash of this block.
+\item The block hash must be validated. To do so, a pre-image of the block hash must be produced (see section 4), and the \texttt{hash library} function must be invoked, passing the pre-image as the payload to the hash function. The output of the hash function must be equivalent to the block's hash.
+\item Finally, if all of the above layer zero verification checks succeed, then the \texttt{validate-block-callback} function must be invoked, passing in this block as the argument, and the result of the callback must indicate that the block has passed layer one verification checks. If the callback returns a failure, then the block is rejected. Note that this verification check must be the final check performed.
+\end{itemize}
+
+Once all of the above verification checks have passed, then the block may actually be added to the blockchain. To notify layer one that the block has indeed been added to the blockchain, the \texttt{add-block-callback} must be invoked, passing in this block as an argument.
+
+\section{Deleting Blocks}
+Once a block has been added to the blockchain, it may also be removed. It is up to the implementation to define how the removal of a block is specified (ie. its block hash may be provided) and what implementation-specific restrictions exist for removal of a block. For example, an implementation may require only that blocks which have zero children are eligible for removal and no other blocks. While the layer zero specification requries that any block which has been added to the blockchain must be removable, it does not impose any additional limitations. Thus, an implementation which only allows childless blocks to be removed can satisfy this property indirectly, by requiring the user to explicitly delete all descendants of a particular block in order to then delete that block.
+
+The only layer zero requirement on block deletion is that the block must exist in the blockchain and layer one must be notified of the block's deletion by invoking the \texttt{delete-block-callback}, providing the block as an argument.
+
+\section{Blockchain Data Recovery}
+Care must be taken in any layer zero implementation to ensure that layer zero and layer one are both in sync and thus consistent with one another. That is, situations should not arise where the two layers disagree over which blocks exist in the blockchain at a given point in time. Crashes may complicate this guarantee, and thus any layer zero implementation which is susceptible to data inconsistency, must provide data recovery functionality that will place the two layers back in sync with one another, or, if it cannot do so, provides an explicit failure of some sort to indicate the blockchain is inconsistent.
+
+\end{document}
